@@ -1,0 +1,30 @@
+# Metfilix backend — Render blueprint (free tier OK)
+# Deploy: dashboard.render.com → New → Blueprint → point at this repo.
+# Then set the env vars below in the Render dashboard (keep them secret).
+services:
+  - type: web
+    name: metfilix-backend
+    runtime: node
+    # free region closest to Supabase us-west-1 pooler = Oregon
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # paste Supabase pooler URL (postgres://...:5432/postgres)
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        sync: false # comma-separated frontend origins, e.g. https://metfilix.vercel.app
+      - key: PGPOOL_MAX
+        value: 3
+      - key: PIXELDRAIN_TEST_VIDEO
+        value: https://pixeldrain.dev/api/file/UXZM8kk7
+      - key: FALLBACK_HLS
+        value: https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8

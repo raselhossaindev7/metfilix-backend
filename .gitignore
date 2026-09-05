@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# env (LIVE SECRETS — never commit; .env.example is the safe template)
+.env
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# coverage
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
