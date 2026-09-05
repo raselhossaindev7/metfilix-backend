@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
+import { ah } from '../middleware/async.js';
 import { z } from 'zod';
 
 const r = Router();
@@ -12,7 +13,7 @@ function sign(user) {
   return jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 }
 
-r.post('/register', async (req, res) => {
+r.post('/register', ah(async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
   const { email, password, name } = parsed.data;
@@ -25,9 +26,9 @@ r.post('/register', async (req, res) => {
   await query("INSERT INTO profiles(user_id,name,avatar,color) VALUES($1,'You','https://i.pravatar.cc/150?img=12','#1E90FF'),($1,'Kids','https://i.pravatar.cc/150?img=8','#FFD700'),($1,'Mom','https://i.pravatar.cc/150?img=5','#32CD32')", [user.id]);
   const token = sign(user);
   res.json({ token, user });
-});
+}));
 
-r.post('/login', async (req, res) => {
+r.post('/login', ah(async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
   const { email, password } = parsed.data;
@@ -38,9 +39,9 @@ r.post('/login', async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
   const token = sign(user);
   res.json({ token, user: { id: user.id, email: user.email, role: user.role, name: user.name } });
-});
+}));
 
-r.get('/me', async (req, res) => {
+r.get('/me', ah(async (req, res) => {
   const h = req.headers.authorization;
   if (!h) return res.status(401).json({ error: 'No token' });
   try {
@@ -50,6 +51,6 @@ r.get('/me', async (req, res) => {
     const profiles = await query('SELECT * FROM profiles WHERE user_id=$1 ORDER BY id', [p.id]);
     res.json({ user: q.rows[0], profiles: profiles.rows });
   } catch (e) { res.status(401).json({ error: 'Invalid token' }); }
-});
+}));
 
 export default r;

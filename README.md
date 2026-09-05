@@ -42,7 +42,10 @@ docker run --name metfilix-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=metfl
    Or New → Web Service: build `npm install`, start `npm start`, health check `/health`, region **Oregon** (closest to Supabase us-west-1).
 3. Set env vars: `DATABASE_URL` (Supabase pooler URL), `JWT_SECRET` (generate), `CORS_ORIGIN` (your Vercel app URL, e.g. `https://metfilix.vercel.app`).
 4. No-CORS-error checklist: exact origin match (https, no trailing slash), `Authorization` + `Content-Type` are pre-approved, preflights cached 24h, mobile apps (no Origin) always allowed.
-5. Staying fast on free: Oregon region, `PGPOOL_MAX=3`, gzip on, `/health` for Render checks. Free services **sleep after ~15 min idle** (first hit takes ~30-60s) — ping `https://<you>.onrender.com/health` every 5-10 min with UptimeRobot/cron-job.org to stay warm. Expect ~50-150ms API times once warm.
+5. Staying awake on free (no more Bad Gateway): free services **sleep after ~15 min idle** (first hit takes ~30-60s). Two free layers are built in — **nothing to sign up for**:
+   - In-app self-ping (`src/keepalive.js`): while awake, the server GETs its own `/health` every `KEEPALIVE_INTERVAL_MS` (default 10 min). Uses Render's auto-provided `RENDER_EXTERNAL_URL`, so zero config. Disable with `KEEPALIVE_ENABLED=false`.
+   - GitHub Actions (`.github/workflows/keepalive.yml`): pings `/health` every 10 min — **this is what wakes a sleeping service**. Push a commit at least every 60 days (GitHub pauses idle schedules), or add UptimeRobot/cron-job.org as backup.
+   - One always-warm service ≈ 720h/month fits in Render's free allowance. Expect ~50-150ms API times once warm.
 ## Tables
 `users`, `profiles`, `movies` (category/lang/img/video_url/genres/rank/progress), `hero_slides`, `rows_config`, `my_list`, `watch_progress`
 

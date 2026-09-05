@@ -1,0 +1,22 @@
+# Free keep-warm for the Render backend (free tier sleeps after ~15 min idle).
+# Pings /health every 10 minutes so the service stays awake — no signup needed.
+#
+# NOTE: GitHub pauses scheduled workflows after 60 days with no repo activity.
+# Push a commit once in a while, or add UptimeRobot / cron-job.org as backup.
+# Works together with the in-app self-ping (src/keepalive.js), which delays
+# sleep while the process is awake but cannot wake a sleeping service.
+name: keepalive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /health (with retries)
+        run: |
+          curl -fsS --retry 2 --retry-delay 30 --max-time 60 https://metfilix-backend.onrender.com/health

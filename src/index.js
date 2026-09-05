@@ -8,6 +8,8 @@ import rowsRoutes from './routes/rows.js';
 import mylistRoutes from './routes/mylist.js';
 import { query } from './db.js';
 import { statusPage } from './status.js';
+import { ah } from './middleware/async.js';
+import { startKeepAlive } from './keepalive.js';
 import { readFileSync } from 'fs';
 dotenv.config();
 
@@ -50,7 +52,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.get('/health', (req, res) => res.json({ ok: true, service: 'metfilix-backend', time: new Date().toISOString() }));
 // HTML status dashboard — open in a browser to see at a glance if the API is running
-app.get('/', async (req, res) => {
+app.get('/', ah(async (req, res) => {
   const started = Date.now();
   const origins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean);
   let db = { ok: false, latencyMs: -1 };
@@ -74,25 +76,25 @@ app.get('/', async (req, res) => {
     time: new Date().toISOString(),
     db, counts, origins,
   }));
-});
-app.get('/api/hero', async (req, res) => {
+}));
+app.get('/api/hero', ah(async (req, res) => {
   const q = await query('SELECT * FROM hero_slides ORDER BY position');
   res.json(q.rows);
-});
+}));
 app.use('/api/auth', authRoutes);
 app.use('/api/movies', moviesRoutes);
 app.use('/api/rows', rowsRoutes);
 app.use('/api/mylist', mylistRoutes);
 
 // stats for dashboard
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', ah(async (req, res) => {
   const users = await query('SELECT COUNT(*) FROM users');
   const movies = await query('SELECT COUNT(*) FROM movies');
   const mylist = await query('SELECT COUNT(*) FROM my_list');
   res.json({ users: Number(users.rows[0].count), movies: Number(movies.rows[0].count), mylist: Number(mylist.rows[0].count) });
-});
+}));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Internal error', detail: err.message }); });
 
-app.listen(PORT, () => console.log(`Metfilix backend on http://localhost:${PORT} — pixeldrain test: ${process.env.PIXELDRAIN_TEST_VIDEO}`));
+app.listen(PORT, () => { console.log(`Metfilix backend on http://localhost:${PORT} — pixeldrain test: ${process.env.PIXELDRAIN_TEST_VIDEO}`); startKeepAlive(); });
