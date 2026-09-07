@@ -74,7 +74,14 @@ CREATE TABLE IF NOT EXISTS hero_slides (
   bg TEXT,
   position INT DEFAULT 0
 );
-`;
+
+-- Low-RAM TV / 4K adaptive sources (idempotent upgrades for existing DBs).
+-- video_url stays the primary/master URL (prefer master.m3u8 HLS).
+-- video_sources = JSON ladder e.g. [{"label":"1080p HLS","url":".../v2/index.m3u8","hls":true}]
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS video_sources JSONB DEFAULT '[]';
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS codec TEXT DEFAULT 'h264';
+ALTER TABLE movies ADD COLUMN IF NOT EXISTS is_hls BOOLEAN DEFAULT FALSE;
+`;  
 
 async function run() {
   console.log('Migrating metfilix DB...');
