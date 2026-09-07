@@ -85,8 +85,22 @@ ALTER TABLE movies ADD COLUMN IF NOT EXISTS is_hls BOOLEAN DEFAULT FALSE;
 
 async function run() {
   console.log('Migrating metfilix DB...');
-  await query(ddl);
+  await ensureSchema();
   console.log('Migrated');
   await getPool().end();
 }
-run().catch(e => { console.error(e); process.exit(1); });
+
+// Exported for boot-time auto-migration (src/index.js calls ensureSchema()
+// on every start, so Render deploys heal themselves — no manual step).
+// NOTE: never end the pool here; the CLI runner below does that.
+export async function ensureSchema() {
+  await query(ddl);
+}
+
+// CLI only: `npm run migrate`. When imported (index.js boot), do nothing.
+const isCli =
+  process.argv[1] != null &&
+  import.meta.url.endsWith(
+    process.argv[1].replaceAll('\\', '/').split('/').pop(),
+  );
+if (isCli) run().catch(e => { console.error(e); process.exit(1); });

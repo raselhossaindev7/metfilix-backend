@@ -7,6 +7,7 @@ import moviesRoutes from './routes/movies.js';
 import rowsRoutes from './routes/rows.js';
 import mylistRoutes from './routes/mylist.js';
 import { query } from './db.js';
+import { ensureSchema } from './migrate.js';
 import { statusPage } from './status.js';
 import { ah } from './middleware/async.js';
 import { startKeepAlive } from './keepalive.js';
@@ -96,5 +97,16 @@ app.get('/api/stats', ah(async (req, res) => {
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Internal error', detail: err.message }); });
+
+// Auto-migrate on boot (idempotent IF NOT EXISTS): a deploy that adds
+// columns (e.g. movies.video_sources) must not 500 until someone manually
+// runs `npm run migrate`. Non-fatal — a sleeping DB must not crash boot;
+// /health + logs will show the failure instead.
+try {
+  await ensureSchema();
+  console.log('Schema ensured');
+} catch (e) {
+  console.error('Schema ensure failed (will retry next start):', e.message);
+}
 
 app.listen(PORT, () => { console.log(`Metfilix backend on http://localhost:${PORT} — pixeldrain test: ${process.env.PIXELDRAIN_TEST_VIDEO}`); startKeepAlive(); });
