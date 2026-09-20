@@ -27,27 +27,71 @@ app.use(compression());
 
 // ---- CORS: env allowlist, credentials-safe, no-origin friendly ----
 // CORS_ORIGIN="https://app.vercel.app,https://admin.vercel.app" (comma-separated, no trailing slash)
+// Supports exact origins + wildcards like "https://*.vercel.app", and auto-allows
+// Vercel preview deploys (*.vercel.app) when a vercel.app origin is allowlisted.
+const normalizeOrigin = (s) => s.trim().replace(/\/+$/, '');
 const allowList = (process.env.CORS_ORIGIN || '')
   .split(',')
-  .map(s => s.trim().replace(/\/$/, ''))
+  .map(normalizeOrigin)
   .filter(Boolean);
+
+function wildcardToRegExp(pattern) {
+  return new RegExp(
+    '^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*') + '$'
+  );
+}
+
+function isOriginAllowed(origin) {
+  if (!origin) return true; // mobile apps, curl, server-to-server (no Origin header)
+  const normalized = normalizeOrigin(origin);
+  // 1. exact match
+  if (allowList.includes(normalized)) return true;
+  // 2. explicit wildcard entries, e.g. https://*.vercel.app
+  for (const entry of allowList) {
+    if (entry.includes('*') && wildcardToRegExp(entry).test(normalized)) return true;
+  }
+  // 3. Vercel preview convenience: if any allowlisted origin is on
+  //    *.vercel.app, allow sibling preview deployments of the same project.
+  //    e.g. allowlist has https://metfilix-frontend.vercel.app →
+  //    allow https://metfilix-frontend-abc123.vercel.app
+  try {
+    const url = new URL(normalized);
+    if (url.hostname.endsWith('.vercel.app')) {
+      const vercelAllowed = allowList.filter((a) => {
+        try { return new URL(a).hostname.endsWith('.vercel.app'); } catch { return false; }
+      });
+      for (const allowed of vercelAllowed) {
+        try {
+          const base = new URL(allowed).hostname.replace(/\.vercel\.app$/, '');
+          // preview hostnames start with "<project>-" or equal the base
+          if (url.hostname === base + '.vercel.app' || url.hostname.startsWith(base + '-')) return true;
+        } catch { /* ignore malformed allowlist entry */ }
+      }
+    }
+  } catch { /* ignore malformed Origin */ }
+  // 4. dev default: allow local frontends when no allowlist configured
+  if (allowList.length === 0 && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)) return true;
+  return false;
+}
+
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // mobile apps, curl, server-to-server
-    if (allowList.length === 0) {
-      // dev default: allow local frontends when no allowlist configured
-      if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
-      return cb(new Error('CORS blocked'));
-    }
-    if (allowList.includes(origin)) return cb(null, true);
-    return cb(new Error('CORS blocked'));
+    // IMPORTANT: never pass an Error here. `cb(new Error(...))` turns a
+    // blocked origin into a 500 with no CORS headers (confusing in DevTools).
+    // `cb(null, false)` correctly omits ACAO so the browser blocks cleanly.
+    if (isOriginAllowed(origin)) return cb(null, true);
+    return cb(null, false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Total-Count'],
+  optionsSuccessStatus: 204,
   maxAge: 86400, // cache preflight 24h → fewer OPTIONS round-trips
 };
 app.use(cors(corsOptions));
+// Ensure caches vary on Origin (correct caching with credentials + allowlist)
+app.use((req, res, next) => { res.header('Vary', 'Origin'); next(); });
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -55,7 +99,7 @@ app.get('/health', (req, res) => res.json({ ok: true, service: 'metfilix-backend
 // HTML status dashboard — open in a browser to see at a glance if the API is running
 app.get('/', ah(async (req, res) => {
   const started = Date.now();
-  const origins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean);
+  const origins = (process.env.CORS_ORIGIN || '').split(',').map(normalizeOrigin).filter(Boolean);
   let db = { ok: false, latencyMs: -1 };
   let counts = null;
   try {
