@@ -36,6 +36,24 @@ docker run --name metfilix-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=metfl
 - `GET /api/mylist/progress` , `POST /api/mylist/progress/:movieId {progress:0-1}`
 - `GET /api/stats`, `GET /health`
 
+## Deploy — Vercel (serverless)
+1. Push this repo to GitHub, then Vercel → New Project → import it.
+   `vercel.json` rewrites every path to `api/index.js`, which serves the
+   same Express app (`src/app.js`) serverlessly. `src/index.js` (with
+   `app.listen`) is only for local/Render — never imported on Vercel.
+2. Set env vars in Vercel → Project → Settings → Environment Variables
+   (all environments): `DATABASE_URL` (Supabase **pooler** URL),
+   `JWT_SECRET`, and:
+   `CORS_ORIGIN=http://localhost:3000,http://localhost:5173,http://localhost:5174,https://metfilix-frontend.vercel.app`
+   Exact origins, comma-separated, **no trailing slash**. Vercel preview
+   deploys (`https://<project>-*.vercel.app`) are auto-allowed.
+3. Redeploy. Verify: `curl -s -o /dev/null -w "%{http_code}" https://<backend>.vercel.app/api/hero` → `200`,
+   and the response to `Origin: https://metfilix-frontend.vercel.app` echoes
+   that origin in `Access-Control-Allow-Origin` (never `http://localhost:5173`).
+4. ⚠️ Never configure CORS as a fixed string (`origin: 'http://localhost:5173'`
+   or a hardcoded response header) — that echoes one origin to every site and
+   browsers block all other frontends with exactly the error above.
+
 ## Deploy — Render free tier
 1. Push this folder to GitHub (as its own repo or monorepo path).
 2. Render dashboard → New → **Blueprint** → select repo (`render.yaml` is included).
