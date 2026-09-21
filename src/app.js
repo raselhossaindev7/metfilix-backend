@@ -23,15 +23,22 @@ app.disable('x-powered-by');
 // gzip JSON (rows/posters payloads) — big win on slow networks
 app.use(compression());
 
-// ---- CORS: env allowlist, credentials-safe, no-origin friendly ----
-// CORS_ORIGIN="https://app.vercel.app,https://admin.vercel.app" (comma-separated, no trailing slash)
-// Supports exact origins + wildcards like "https://*.vercel.app", and auto-allows
-// Vercel preview deploys (*.vercel.app) when a vercel.app origin is allowlisted.
+// ---- CORS: hardcoded production origins + env allowlist ----
 export const normalizeOrigin = (s) => s.trim().replace(/\/+$/, '');
-export const allowList = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map(normalizeOrigin)
-  .filter(Boolean);
+// PERMANENT FIX: never depend on Vercel env alone (it was unset → prod blocked).
+// These two frontends are always allowed, no matter what CORS_ORIGIN is set to.
+export const HARDCODED_ORIGINS = [
+  'https://metfilix.online',
+  'https://www.metfilix.online',
+  'https://metfilix-frontend.vercel.app',
+];
+export const allowList = [...new Set([
+  ...HARDCODED_ORIGINS,
+  ...(process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map(normalizeOrigin)
+    .filter(Boolean),
+])];
 
 function wildcardToRegExp(pattern) {
   return new RegExp(
@@ -90,6 +97,8 @@ export const corsOptions = {
   maxAge: 86400, // cache preflight 24h → fewer OPTIONS round-trips
 };
 app.use(cors(corsOptions));
+// Explicit preflight handler — guarantees OPTIONS never hits 404 on Vercel/Render.
+app.options(/.*/, cors(corsOptions));
 // Ensure caches vary on Origin (correct caching with credentials + allowlist)
 app.use((req, res, next) => { res.header('Vary', 'Origin'); next(); });
 app.use(express.json({ limit: '2mb' }));
@@ -99,7 +108,7 @@ app.get('/health', (req, res) => res.json({ ok: true, service: 'metfilix-backend
 // HTML status dashboard — open in a browser to see at a glance if the API is running
 app.get('/', ah(async (req, res) => {
   const started = Date.now();
-  const origins = (process.env.CORS_ORIGIN || '').split(',').map(normalizeOrigin).filter(Boolean);
+  const origins = [...allowList];
   let db = { ok: false, latencyMs: -1 };
   let counts = null;
   try {
