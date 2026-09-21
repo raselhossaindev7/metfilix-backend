@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.js';
 import moviesRoutes from './routes/movies.js';
 import rowsRoutes from './routes/rows.js';
 import mylistRoutes from './routes/mylist.js';
+import episodesRoutes from './routes/episodes.js';
 import { query } from './db.js';
 import { statusPage } from './status.js';
 import { ah } from './middleware/async.js';
@@ -139,6 +140,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/movies', moviesRoutes);
 app.use('/api/rows', rowsRoutes);
 app.use('/api/mylist', mylistRoutes);
+app.use('/api/episodes', episodesRoutes);
 
 // stats for dashboard
 app.get('/api/stats', ah(async (req, res) => {

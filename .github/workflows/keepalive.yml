@@ -20,3 +20,8 @@ jobs:
       - name: Ping /health (with retries)
         run: |
           curl -fsS --retry 2 --retry-delay 30 --max-time 60 https://metfilix-backend.onrender.com/health
+      # Vercel serverless sleeps too — ping the status page (runs DB queries,
+      # so it also keeps Supabase from pausing). Non-failing: URL may change.
+      - name: Ping Vercel deployment (best effort)
+        run: |
+          curl -fsS --retry 2 --retry-delay 30 --max-time 60 "https://metflix-backend.vercel.app/?warm=1" -o /dev/null || echo "vercel ping failed (non-fatal)"

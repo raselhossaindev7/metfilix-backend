@@ -24,6 +24,13 @@ function ready() {
 }
 
 export default async function handler(req, res) {
-  await ready();
+  // Never block a request on migration: Vercel kills hobby functions at ~10s,
+  // so awaiting ensureSchema() on a cold start (paused Supabase wakes slowly)
+  // turns every first hit into a 504. Wait at most ~6s for the migrate, then
+  // serve anyway — endpoints fail fast (500/503 JSON) instead of hanging.
+  // The migration promise is shared per cold start and retries next request.
+  try {
+    await Promise.race([ready(), new Promise((r) => setTimeout(r, 6000))]);
+  } catch { /* ready() already logs + resets for retry */ }
   return app(req, res);
 }
