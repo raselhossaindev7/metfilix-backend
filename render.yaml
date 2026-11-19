@@ -14,15 +14,17 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        sync: false # paste Supabase pooler URL (postgres://...:5432/postgres)
+      - key: MONGODB_URI
+        sync: false # paste MongoDB Atlas URI (mongodb+srv://<user>:<pass>@<cluster>.mongodb.net)
+      - key: MONGODB_DB
+        value: metfilix
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
         sync: false # comma-separated frontend origins, e.g. https://metfilix.vercel.app
-      - key: PGPOOL_MAX
+      - key: MONGOPOOL_MAX
         value: 3
       - key: PIXELDRAIN_TEST_VIDEO
         value: https://pixeldrain.dev/api/file/UXZM8kk7

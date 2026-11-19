@@ -7,7 +7,7 @@ import moviesRoutes from './routes/movies.js';
 import rowsRoutes from './routes/rows.js';
 import mylistRoutes from './routes/mylist.js';
 import episodesRoutes from './routes/episodes.js';
-import { query } from './db.js';
+import { getCollection, cleanAll, ping } from './db.js';
 import { statusPage } from './status.js';
 import { ah } from './middleware/async.js';
 import { readFileSync } from 'fs';
@@ -75,7 +75,15 @@ export function isOriginAllowed(origin) {
       }
     }
   } catch { /* ignore malformed Origin */ }
-  // 4. dev default: allow local frontends when no allowlist configured
+  // 4. dev/LAN convenience: Expo web and TVs on private networks (any port)
+  if (
+    /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(
+      normalized
+    )
+  ) {
+    return true;
+  }
+  // 5. dev default: allow local frontends when no allowlist configured
   if (allowList.length === 0 && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)) return true;
   return false;
 }
@@ -113,14 +121,19 @@ app.get('/', ah(async (req, res) => {
   let db = { ok: false, latencyMs: -1 };
   let counts = null;
   try {
-    await query('SELECT 1');
+    await ping();
     db = { ok: true, latencyMs: Date.now() - started };
-    const [u, m, l] = await Promise.all([
-      query('SELECT COUNT(*) FROM users'),
-      query('SELECT COUNT(*) FROM movies'),
-      query('SELECT COUNT(*) FROM my_list'),
+    const [users, movies, mylist] = await Promise.all([
+      getCollection('users'),
+      getCollection('movies'),
+      getCollection('my_list'),
     ]);
-    counts = { users: Number(u.rows[0].count), movies: Number(m.rows[0].count), mylist: Number(l.rows[0].count) };
+    const [u, m, l] = await Promise.all([
+      users.countDocuments(),
+      movies.countDocuments(),
+      mylist.countDocuments(),
+    ]);
+    counts = { users: u, movies: m, mylist: l };
   } catch (e) {
     db = { ok: false, latencyMs: -1, error: e.message };
   }
@@ -133,8 +146,9 @@ app.get('/', ah(async (req, res) => {
   }));
 }));
 app.get('/api/hero', ah(async (req, res) => {
-  const q = await query('SELECT * FROM hero_slides ORDER BY position');
-  res.json(q.rows);
+  const hero = await getCollection('hero_slides');
+  const slides = await hero.find({}).sort({ position: 1 }).toArray();
+  res.json(cleanAll(slides));
 }));
 app.use('/api/auth', authRoutes);
 app.use('/api/movies', moviesRoutes);
@@ -144,10 +158,17 @@ app.use('/api/episodes', episodesRoutes);
 
 // stats for dashboard
 app.get('/api/stats', ah(async (req, res) => {
-  const users = await query('SELECT COUNT(*) FROM users');
-  const movies = await query('SELECT COUNT(*) FROM movies');
-  const mylist = await query('SELECT COUNT(*) FROM my_list');
-  res.json({ users: Number(users.rows[0].count), movies: Number(movies.rows[0].count), mylist: Number(mylist.rows[0].count) });
+  const [users, movies, mylist] = await Promise.all([
+    getCollection('users'),
+    getCollection('movies'),
+    getCollection('my_list'),
+  ]);
+  const [u, m, l] = await Promise.all([
+    users.countDocuments(),
+    movies.countDocuments(),
+    mylist.countDocuments(),
+  ]);
+  res.json({ users: u, movies: m, mylist: l });
 }));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
