@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getCollection, clean, cleanAll, nextId } from '../db.js';
-import { authRequired, adminOnly } from '../middleware/auth.js';
+import { authRequired, requirePerm } from '../middleware/auth.js';
 import { ah } from '../middleware/async.js';
 
 const r = Router();
@@ -11,7 +11,7 @@ r.get('/', ah(async (req, res) => {
   res.json(cleanAll(list));
 }));
 
-r.post('/', authRequired, adminOnly, ah(async (req, res) => {
+r.post('/', authRequired, requirePerm('rows.manage'), ah(async (req, res) => {
   const { title, category, position } = req.body || {};
   if (!title) return res.status(400).json({ error: 'title required' });
 
@@ -27,7 +27,7 @@ r.post('/', authRequired, adminOnly, ah(async (req, res) => {
   res.status(201).json(clean(doc));
 }));
 
-r.put('/:id', authRequired, adminOnly, ah(async (req, res) => {
+r.put('/:id', authRequired, requirePerm('rows.manage'), ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
 
@@ -44,7 +44,7 @@ r.put('/:id', authRequired, adminOnly, ah(async (req, res) => {
   res.json(clean(updated));
 }));
 
-r.delete('/:id', authRequired, adminOnly, ah(async (req, res) => {
+r.delete('/:id', authRequired, requirePerm('rows.manage'), ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
   const rows = await getCollection('rows_config');

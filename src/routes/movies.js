@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getCollection, clean, cleanAll, nextId } from '../db.js';
-import { authRequired, adminOnly } from '../middleware/auth.js';
+import { authRequired, requirePerm, userFromToken } from '../middleware/auth.js';
 import { ah } from '../middleware/async.js';
 
 const r = Router();
@@ -108,7 +108,7 @@ r.get('/:id/episodes', ah(async (req, res) => {
   res.json(cleanAll(list));
 }));
 
-r.post('/:id/episodes', authRequired, adminOnly, ah(async (req, res) => {
+r.post('/:id/episodes', authRequired, requirePerm('movies.edit'), ah(async (req, res) => {
   const movieId = Number(req.params.id);
   if (!Number.isInteger(movieId)) return res.status(404).json({ error: 'Not found' });
 
@@ -146,6 +146,106 @@ r.post('/:id/episodes', authRequired, adminOnly, ah(async (req, res) => {
   res.status(201).json(clean(doc));
 }));
 
+// public engagement counters (used by the web watch page)
+r.post('/:id/view', ah(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
+  const movies = await getCollection('movies');
+  const result = await movies.findOneAndUpdate(
+    { id },
+    { $inc: { views: 1 } },
+    { returnDocument: 'after', projection: { id: 1, views: 1 } }
+  );
+  const updated = result && 'value' in result ? result.value : result;
+  if (!updated) return res.status(404).json({ error: 'Not found' });
+  res.json({ id, views: updated.views || 0 });
+}));
+
+// My reaction (signed-in users only) so the UI can restore like/dislike state.
+r.get('/:id/reaction', authRequired, ah(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
+  const reactions = await getCollection('movie_reactions');
+  const doc = await reactions.findOne({ user_id: req.user.id, movie_id: id });
+  res.json({ action: doc?.action || null });
+}));
+
+// Like / dislike. Signed-in users get a real toggle (one reaction per movie,
+// switching or removing it fixes the counters atomically). Guests can still
+// add a like/dislike, but cannot take it back.
+r.post('/:id/like', ah(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
+
+  const raw = req.body?.action;
+  const action = raw === 'dislike' ? 'dislike' : raw === 'none' ? 'none' : 'like';
+  const movies = await getCollection('movies');
+  const movie = await movies.findOne({ id });
+  if (!movie) return res.status(404).json({ error: 'Not found' });
+
+  const me = userFromToken(req);
+  if (!me) {
+    if (action === 'none') {
+      return res.json({ id, likes: movie.likes || 0, dislikes: movie.dislikes || 0, action: null });
+    }
+    const updated = await movies.findOneAndUpdate(
+      { id },
+      { $inc: { [action === 'dislike' ? 'dislikes' : 'likes']: 1 } },
+      { returnDocument: 'after', projection: { id: 1, likes: 1, dislikes: 1 } }
+    );
+    const doc = updated && 'value' in updated ? updated.value : updated;
+    return res.json({
+      id,
+      likes: doc?.likes || 0,
+      dislikes: doc?.dislikes || 0,
+      action,
+      anonymous: true,
+    });
+  }
+
+  const reactions = await getCollection('movie_reactions');
+  const existing = await reactions.findOne({ user_id: me.id, movie_id: id });
+  const prev = existing?.action || null;
+  if (prev === action) {
+    return res.json({ id, likes: movie.likes || 0, dislikes: movie.dislikes || 0, action: prev });
+  }
+
+  const delta = { likes: 0, dislikes: 0 };
+  if (prev === 'like') delta.likes--;
+  if (prev === 'dislike') delta.dislikes--;
+  if (action === 'like') delta.likes++;
+  if (action === 'dislike') delta.dislikes++;
+
+  if (action === 'none') {
+    if (existing) await reactions.deleteOne({ _id: existing._id });
+  } else {
+    await reactions.updateOne(
+      { user_id: me.id, movie_id: id },
+      { $set: { action, updated_at: new Date() }, $setOnInsert: { created_at: new Date() } },
+      { upsert: true }
+    );
+  }
+
+  // Pipeline update keeps counters clamped at zero even if legacy rows drifted.
+  const updated = await movies.findOneAndUpdate(
+    { id },
+    [{
+      $set: {
+        likes: { $max: [0, { $add: [{ $ifNull: ['$likes', 0] }, delta.likes] }] },
+        dislikes: { $max: [0, { $add: [{ $ifNull: ['$dislikes', 0] }, delta.dislikes] }] },
+      },
+    }],
+    { returnDocument: 'after', projection: { id: 1, likes: 1, dislikes: 1 } }
+  );
+  const doc = updated && 'value' in updated ? updated.value : updated;
+  res.json({
+    id,
+    likes: doc?.likes || 0,
+    dislikes: doc?.dislikes || 0,
+    action: action === 'none' ? null : action,
+  });
+}));
+
 r.get('/:id', ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
@@ -156,7 +256,7 @@ r.get('/:id', ah(async (req, res) => {
 }));
 
 // admin
-r.post('/', authRequired, adminOnly, ah(async (req, res) => {
+r.post('/', authRequired, requirePerm('movies.create'), ah(async (req, res) => {
   const { title, video_url } = req.body || {};
   if (!title) return res.status(400).json({ error: 'title required' });
 
@@ -193,7 +293,7 @@ r.post('/', authRequired, adminOnly, ah(async (req, res) => {
   res.status(201).json(clean(doc));
 }));
 
-r.put('/:id', authRequired, adminOnly, ah(async (req, res) => {
+r.put('/:id', authRequired, requirePerm('movies.edit'), ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
 
@@ -211,12 +311,21 @@ r.put('/:id', authRequired, adminOnly, ah(async (req, res) => {
   res.json(clean(updated));
 }));
 
-r.delete('/:id', authRequired, adminOnly, ah(async (req, res) => {
+// Deleting a title must not leave orphaned rows behind: episodes, watchlists,
+// progress, comments, reports and reactions all point at the movie id.
+r.delete('/:id', authRequired, requirePerm('movies.delete'), ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
   const movies = await getCollection('movies');
   const result = await movies.deleteOne({ id });
   if (!result.deletedCount) return res.status(404).json({ error: 'Not found' });
+
+  await Promise.all([
+    'episodes', 'my_list', 'watch_progress', 'comments', 'reports', 'movie_reactions',
+  ].map(async (name) => {
+    const coll = await getCollection(name);
+    await coll.deleteMany({ movie_id: id });
+  }));
   res.json({ ok: true });
 }));
 

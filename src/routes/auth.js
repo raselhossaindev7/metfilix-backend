@@ -12,7 +12,13 @@ const loginSchema = z.object({ email: z.string().email(), password: z.string().m
 
 function sign(user) {
   return jwt.sign(
-    { id: user._id, email: user.email, role: user.role },
+    {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      // bumped on password change / suspension so old tokens die
+      tv: Number(user.token_version || 0),
+    },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
@@ -73,6 +79,7 @@ r.post('/login', ah(async (req, res) => {
   const users = await getCollection('users');
   const user = await users.findOne({ email });
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  if (user.status === 'suspended') return res.status(403).json({ error: 'Account suspended' });
 
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
@@ -80,6 +87,16 @@ r.post('/login', ah(async (req, res) => {
   const token = sign(user);
   res.json({ token, user: publicUser(user) });
 }));
+
+// Password reset email is not wired up yet — always return the same generic
+// answer so the endpoint cannot be used to enumerate registered emails.
+r.post('/forgot', ah(async (req, res) => {
+  res.json({ message: 'If that email is registered, a reset link will arrive shortly.' });
+}));
+
+// JWTs are stateless; the client simply drops its token. Keep the route so the
+// admin app's logout call does not 404.
+r.post('/logout', (req, res) => res.json({ ok: true }));
 
 r.get('/me', ah(async (req, res) => {
   const h = req.headers.authorization;
@@ -89,11 +106,19 @@ r.get('/me', ah(async (req, res) => {
     const users = await getCollection('users');
     const user = await users.findOne({ _id: payload.id });
     if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.status === 'suspended') return res.status(403).json({ error: 'Account suspended' });
+    if (Number(payload.tv || 0) !== Number(user.token_version || 0)) {
+      return res.status(401).json({ error: 'Session expired — sign in again' });
+    }
     const profiles = await getCollection('profiles');
     const list = await profiles.find({ user_id: user._id }).sort({ created_at: 1 }).toArray();
     res.json({
-      user: { ...clean(user), password_hash: undefined },
-      profiles: list.map(clean),
+      user: {
+        ...publicUser(user),
+        status: user.status || 'active',
+        created_at: user.created_at,
+      },
+      profiles: list.map((p) => ({ ...clean(p), id: p._id })),
     });
   } catch {
     res.status(401).json({ error: 'Invalid token' });

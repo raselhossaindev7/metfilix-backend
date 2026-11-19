@@ -7,6 +7,13 @@ import moviesRoutes from './routes/movies.js';
 import rowsRoutes from './routes/rows.js';
 import mylistRoutes from './routes/mylist.js';
 import episodesRoutes from './routes/episodes.js';
+import usersRoutes from './routes/users.js';
+import auditRoutes, { auditMutations } from './routes/audit.js';
+import { commentsRoutes, reportsRoutes, requestsRoutes } from './routes/moderation.js';
+import profileRoutes from './routes/profile.js';
+import progressRoutes from './routes/progress.js';
+import heroRoutes from './routes/hero.js';
+import metadataRoutes from './routes/metadata.js';
 import { getCollection, cleanAll, ping } from './db.js';
 import { statusPage } from './status.js';
 import { ah } from './middleware/async.js';
@@ -112,6 +119,8 @@ app.options(/.*/, cors(corsOptions));
 app.use((req, res, next) => { res.header('Vary', 'Origin'); next(); });
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
+// Record successful authenticated mutations for the admin audit log.
+app.use(auditMutations);
 
 app.get('/health', (req, res) => res.json({ ok: true, service: 'metfilix-backend', time: new Date().toISOString() }));
 // HTML status dashboard — open in a browser to see at a glance if the API is running
@@ -145,30 +154,62 @@ app.get('/', ah(async (req, res) => {
     db, counts, origins,
   }));
 }));
-app.get('/api/hero', ah(async (req, res) => {
-  const hero = await getCollection('hero_slides');
-  const slides = await hero.find({}).sort({ position: 1 }).toArray();
-  res.json(cleanAll(slides));
-}));
+app.use('/api/hero', heroRoutes);
+app.use('/api/metadata', metadataRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/movies', moviesRoutes);
 app.use('/api/rows', rowsRoutes);
 app.use('/api/mylist', mylistRoutes);
 app.use('/api/episodes', episodesRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/audit', auditRoutes);
+app.use('/api/comments', commentsRoutes);
+app.use('/api/reports', reportsRoutes);
+app.use('/api/requests', requestsRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/progress', progressRoutes);
 
-// stats for dashboard
+// stats for dashboard / analytics (one round-trip instead of many)
 app.get('/api/stats', ah(async (req, res) => {
-  const [users, movies, mylist] = await Promise.all([
+  const [users, movies, mylist, comments, requests, reports, episodes] = await Promise.all([
     getCollection('users'),
     getCollection('movies'),
     getCollection('my_list'),
+    getCollection('comments'),
+    getCollection('requests'),
+    getCollection('reports'),
+    getCollection('episodes'),
   ]);
-  const [u, m, l] = await Promise.all([
+  const [u, m, l, c, rq, rp, totals, seriesIds] = await Promise.all([
     users.countDocuments(),
     movies.countDocuments(),
     mylist.countDocuments(),
+    comments.countDocuments(),
+    requests.countDocuments({ status: 'pending' }),
+    reports.countDocuments(),
+    movies.aggregate([
+      {
+        $group: {
+          _id: null,
+          views: { $sum: { $ifNull: ['$views', 0] } },
+          likes: { $sum: { $ifNull: ['$likes', 0] } },
+        },
+      },
+    ]).toArray(),
+    episodes.distinct('movie_id'),
   ]);
-  res.json({ users: u, movies: m, mylist: l });
+  const t = totals[0] || {};
+  res.json({
+    users: u,
+    movies: m,
+    mylist: l,
+    views: t.views || 0,
+    likes: t.likes || 0,
+    series: seriesIds.filter((id) => Number.isInteger(id)).length,
+    comments: c,
+    requests: rq,
+    reports: rp,
+  });
 }));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

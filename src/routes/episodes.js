@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getCollection, clean, cleanAll } from '../db.js';
-import { authRequired, adminOnly } from '../middleware/auth.js';
+import { authRequired, requirePerm } from '../middleware/auth.js';
 import { ah } from '../middleware/async.js';
 
 const r = Router();
@@ -32,7 +32,7 @@ r.get('/:id', ah(async (req, res) => {
   res.json(clean(ep));
 }));
 
-r.put('/:id', authRequired, adminOnly, ah(async (req, res) => {
+r.put('/:id', authRequired, requirePerm('movies.edit'), ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
 
@@ -52,7 +52,7 @@ r.put('/:id', authRequired, adminOnly, ah(async (req, res) => {
   res.json(clean(updated));
 }));
 
-r.delete('/:id', authRequired, adminOnly, ah(async (req, res) => {
+r.delete('/:id', authRequired, requirePerm('movies.edit'), ah(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(404).json({ error: 'Not found' });
   const episodes = await getCollection('episodes');
